@@ -1,10 +1,11 @@
 ## Kubernetes Instalation Instructions (Single node - Cluster)
 
-# This setup install:
+
+# This setup install: [Kubernetes doc](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/)
 - containerd (container runtime)
-- kubeadm
-- kubelet
-- kubectl 
+- kubeadm (command to bootstrap the cluster)
+- kubelet (component that runs on all of the machines in cluster )
+- kubectl (command line tool to talk with cluster)
 
 
 # 1. Prepare Linux system
@@ -18,7 +19,7 @@ Disable swap (required by Kubernetes)
 sudo swapoff -a
 ```
 
-Also necessary to comment out swap in file /etc/fstab
+Also necessary to comment out swap in file ```bash /etc/fstab```
 
 To verify:
 ```bash
@@ -78,6 +79,14 @@ Enable Systemd cgroup driver:
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 ```
 
+Verify:
+```bash
+grep SystemdCgroup /etc/containerd/config.toml
+```
+
+Result should be: ```bash SystemdCgroup = true```
+
+
 Restart containerd:
 ```bash
 sudo systemctl restart containerd
@@ -90,9 +99,9 @@ sudo systemctl status containerd
 ```
 
 
-# 4. Install Kubernetes packages [Kubernetes doc](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/?utm_source=chatgpt.com)
+# 4. Install Kubernetes packages 
 
-Add Kubernetes repository key:
+Add Kubernetes repository key: Before executing verify version on documentation
 ```bash
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.36/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 ```
@@ -122,9 +131,16 @@ kubectl version
 
 
 # 5. Initialize the Kubernetes control plane
+
+CIDR should be compatible with CNI configuration like (Cilium, Flannel, Calico)
+
 Initialize cluster:
 ```bash
 sudo kubeadm init --pod-network-cidr=192.168.0.0/16
+
+kubectl cluster-info
+
+kubectl get nodes -o wide
 ```
 
 When finished, configure kubectl for your user:
@@ -144,10 +160,14 @@ Kubernetes needs pod networking.
 
 Calico:
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml
+curl -O https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml
+kubectl apply -f calico.yaml
+
+kubectl get pods -n kube-system
 ```
 
-# 7. Allow workloads on single-node clusters (optional)
+# 7. Allow workloads on single-node clusters (only for lab/test not for production)
+
 ```bash
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 ```
@@ -158,14 +178,39 @@ sudo systemctl status kubelet
 sudo systemctl status containerd
 ```
 
-
-Install Helm:
+Verify crictl:
 ```bash
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+sudo crictl version
+```
+If not installed run: [crictl](https://github.com/kubernetes-sigs/cri-tools/releases)
+
+```bash
+VERSION="v1.36.0"
+
+wget https://github.com/kubernetes-sigs/cri-tools/releases/download/${VERSION}/crictl-${VERSION}-linux-amd64.tar.gz
+
+sudo tar zxvf crictl-${VERSION}-linux-amd64.tar.gz -C /usr/local/bin
+
+rm crictl-${VERSION}-linux-amd64.tar.gz
+```
+```bash
+sudo crictl version
 ```
 
+Create configuration for containerd:
+```bash
+sudo tee /etc/crictl.yaml <<EOF
+runtime-endpoint: unix:///run/containerd/containerd.sock
+image-endpoint: unix:///run/containerd/containerd.sock
+timeout: 10
+debug: false
+EOF
+```
 
-# 8. Runnig Nginx to test cluster
+Install Helm: [Helm](https://helm.sh/docs/intro/install/)
+
+
+# 9. Runnig Nginx to test cluster
 
 First create new namespace
 ```bash
@@ -193,6 +238,8 @@ spec:
       containers:
       - name: nginx
         image: nginx
+        ports:
+        - containerPort: 80
 ```
 
 ```bash
@@ -218,3 +265,4 @@ spec:
 
 ```bash
 kubectl apply -f service.yaml
+```
